@@ -136,6 +136,7 @@ router.post("/login", async (req, res) => {
   try {
     const user = await User.findOne({ username: req.body.username });
     !user && res.status(401).json("Wrong credentials");
+    //console.log(user.username);
     const hashedPassword = CryptoJS.AES.decrypt(
       user.password,
       process.env.PASS_SEC
@@ -146,8 +147,8 @@ router.post("/login", async (req, res) => {
     //const payload = { sub: user._id };
 
     const accessToken = new Token({
-      _userId: newUser._id,
-      token: jwt.sign({ sub: newUser._id }, process.env.ACCESS_TOKEN_SECRET, {
+      _userId: user._id,
+      token: jwt.sign({ sub: user._id }, JwtOptions.secretOrKey, {
         expiresIn: "300s",
       }),
       type: tokenTypes.ACCESS,
@@ -158,12 +159,15 @@ router.post("/login", async (req, res) => {
     // });
 
     const refreshToken = new Token({
-      _userId: newUser._id,
-      token: jwt.sign({ sub: newUser._id }, process.env.RESFRESH_TOKEN_SECRET, {
+      _userId: user._id,
+      token: jwt.sign({ sub: user._id }, process.env.RESFRESH_TOKEN_SECRET, {
         expiresIn: "300s",
       }),
       type: tokenTypes.REFRESH,
     });
+
+    await accessToken.save();
+    await refreshToken.save();
 
     // const refreshToken = jwt.sign(payload, process.env.RESFRESH_TOKEN_SECRET, {
     //   expiresIn: "3d",
@@ -203,16 +207,30 @@ router.get(
 );
 
 router.post("/getToken", async (req, res) => {
-  const { refreshToken } = req.body;
-  if (refreshToken && refreshToken in refreshTokens) {
+  //const { refreshToken } = req.body;
+  const refreshToken = await Token.findOne({
+    token: req.body.refreshToken,
+    type: tokenTypes.REFRESH,
+  });
+  //&& refreshToken in refreshTokens
+  if (refreshToken) {
     const user = await User.findOne({ username: req.body.username });
-    const payload = { sub: user._id };
-    const accessToken = jwt.sign(payload, JwtOptions.secretOrKey, {
-      expiresIn: "300s",
+    //const payload = { sub: user._id };
+    // const accessToken = jwt.sign(payload, JwtOptions.secretOrKey, {
+    //   expiresIn: "300s",
+    // });
+    const accessToken = new Token({
+      _userId: user._id,
+      token: jwt.sign({ sub: user._id }, JwtOptions.secretOrKey, {
+        expiresIn: "300s",
+      }),
+      type: tokenTypes.ACCESS,
     });
-    refreshTokens[refreshToken].accessToken = accessToken;
-    res.json([refreshTokens[refreshToken]]);
+
+    //refreshTokens[refreshToken].accessToken = accessToken;
+    //res.json([refreshTokens[refreshToken]]);
     //res.json([refreshTokens]);
+    res.json({ accessToken: accessToken });
   } else {
     res.json("Invalid");
   }
@@ -256,9 +274,9 @@ router.get("/regetPassword/:id", async (req, res) => {
 
 router.get("/resetPassword", async (req, res) => {
   try {
-    const token = await Token.findOne({ token: req.body.accessToken });
+    const accessToken = await Token.findOne({ token: req.body.accessToken });
     const user = await User.findOne({ username: req.body.username });
-    console.log(token);
+    //console.log(token);
     var mailOptions = {
       from: "ghjnnii@gmail.com",
       to: user.email,
@@ -269,7 +287,7 @@ router.get("/resetPassword", async (req, res) => {
         ",\n\nPleas reset password by click link:\nhttp://" +
         req.headers.host +
         "/auth/setPassword/" +
-        token.token,
+        accessToken.token,
     };
     await transporter.sendMail(mailOptions);
     res.json(
@@ -285,9 +303,14 @@ router.get("/resetPassword", async (req, res) => {
 
 router.post("/setPassword/:token", async (req, res) => {
   try {
+    const password = CryptoJS.AES.encrypt(
+      req.body.password,
+      process.env.PASS_SEC
+    ).toString();
     const user = await User.findOneAndUpdate(
-      { _id: req.params.token },
-      { $set: req.body },
+      //{ _id: req.params.token },
+      { username: req.body.username },
+      { $set: { password: password } },
       { new: true }
     );
     return res.json(user.password);
@@ -299,3 +322,8 @@ router.post("/setPassword/:token", async (req, res) => {
 
 module.exports = router;
 //process.env.RESFRESH_TOKEN_SECRET
+
+// password: CryptoJS.AES.encrypt(
+//       req.body.password,
+//       process.env.PASS_SEC
+//     ).toString(),
